@@ -1,28 +1,25 @@
-import os
-
 import pandas as pd
 from playwright.sync_api import sync_playwright
 
+from core.config import capellania_credentials
 from core.excel_store import EXCEL_FILE
 
 
 WP_LOGIN_URL = "https://capellania-app.visualweb.systems/wp-login.php"
 TARGET_URL = "https://capellania-app.visualweb.systems/wp-admin/admin.php?page=capapp2_estudios_biblicos"
 
-USER_WP = os.getenv("CAPELLANIA_USER", "")
-PASS_WP = os.getenv("CAPELLANIA_PASS", "")
-
-
 def validar_credenciales():
-    if not USER_WP or not PASS_WP:
+    credentials = capellania_credentials()
+    if not credentials["user"] or not credentials["password"]:
         raise RuntimeError(
             "Faltan CAPELLANIA_USER y/o CAPELLANIA_PASS. "
             "Definilas como variables de entorno antes de extraer catalogos."
         )
+    return credentials
 
 
 def extraer_catalogos_completos(excel_file=EXCEL_FILE):
-    validar_credenciales()
+    credentials = validar_credenciales()
     print("Iniciando extraccion exhaustiva de catalogos desde la plataforma...")
 
     with sync_playwright() as p:
@@ -30,8 +27,8 @@ def extraer_catalogos_completos(excel_file=EXCEL_FILE):
         page = browser.new_page()
 
         page.goto(WP_LOGIN_URL)
-        page.fill("#user_login", USER_WP)
-        page.fill("#user_pass", PASS_WP)
+        page.fill("#user_login", credentials["user"])
+        page.fill("#user_pass", credentials["password"])
         page.click("#wp-submit")
         page.wait_for_load_state("networkidle")
 

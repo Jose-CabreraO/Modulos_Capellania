@@ -39,6 +39,37 @@ Luego abre:
 http://localhost:8501
 ```
 
+## Conectar a Streamlit Cloud
+
+1. Entra a Streamlit Cloud y elige `New app`.
+2. Selecciona el repo:
+
+```text
+Jose-CabreraO/Modulos_Capellania
+```
+
+3. Configura:
+
+```text
+Branch: main
+Main file path: app.py
+```
+
+4. En `Advanced settings > Secrets`, agrega:
+
+```toml
+CAPELLANIA_USER = "tu_usuario"
+CAPELLANIA_PASS = "tu_contrasena"
+```
+
+5. Deploy.
+
+Notas:
+
+- El archivo operativo `plantilla_flujo_completo.xlsx` no se sube a GitHub porque puede contener datos internos.
+- Si el Excel no existe en el entorno de Streamlit Cloud, la app crea una plantilla vacia al iniciar.
+- La automatizacion con Playwright depende de que el entorno cloud soporte Chromium y las librerias del sistema listadas en `packages.txt`.
+
 ## Estructura
 
 ```text

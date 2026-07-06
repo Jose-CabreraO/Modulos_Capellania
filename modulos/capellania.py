@@ -5,6 +5,7 @@ import pandas as pd
 import streamlit as st
 
 from core import excel_store
+from core.config import capellania_credentials
 from core.excel_store import (
     EXCEL_FILE,
     inyectar_whatsapp,
@@ -26,12 +27,22 @@ def _preview_dataframe(registros):
 
 
 def _ejecutar_bot():
+    env = None
+    credentials = capellania_credentials()
+    if credentials["user"] and credentials["password"]:
+        import os
+
+        env = os.environ.copy()
+        env["CAPELLANIA_USER"] = credentials["user"]
+        env["CAPELLANIA_PASS"] = credentials["password"]
+
     proceso = subprocess.run(
         [sys.executable, "-m", "core.bot_carga"],
         cwd=EXCEL_FILE.parent,
         capture_output=True,
         text=True,
         check=False,
+        env=env,
     )
     return proceso
 

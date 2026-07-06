@@ -1,7 +1,7 @@
 from pathlib import Path
 
 import pandas as pd
-from openpyxl import load_workbook
+from openpyxl import Workbook, load_workbook
 from openpyxl.styles import PatternFill
 
 
@@ -25,8 +25,46 @@ GROUP_COLUMNS = [
     STATUS_COL,
 ]
 
+INTEGRANTES_COLUMNS = [
+    "Nombre del Grupo (Exacto)*",
+    "Nombre*",
+    "Apellido",
+    "CI",
+    "Email",
+    "Sección",
+]
+
+REFERENCIAS_COLUMNS = [
+    "Empresas",
+    "Sucursales",
+    "Materiales",
+    "Capellanes",
+    "Estados",
+    "Secciones",
+]
+
+
+def asegurar_workbook(excel_file=EXCEL_FILE):
+    if Path(excel_file).exists():
+        return
+
+    wb = Workbook()
+    ws_grupos = wb.active
+    ws_grupos.title = SHEET_GRUPOS
+    ws_grupos.append(GROUP_COLUMNS)
+
+    ws_integrantes = wb.create_sheet(SHEET_INTEGRANTES)
+    ws_integrantes.append(INTEGRANTES_COLUMNS)
+
+    ws_referencias = wb.create_sheet(SHEET_REFERENCIAS)
+    ws_referencias.append(REFERENCIAS_COLUMNS)
+
+    wb.save(excel_file)
+    wb.close()
+
 
 def inicializar_estado_carga(excel_file=EXCEL_FILE):
+    asegurar_workbook(excel_file)
     wb = load_workbook(excel_file)
     try:
         ws = wb[SHEET_GRUPOS]
@@ -59,10 +97,12 @@ def leer_grupos(excel_file=EXCEL_FILE):
 
 
 def leer_integrantes(excel_file=EXCEL_FILE):
+    asegurar_workbook(excel_file)
     return pd.read_excel(excel_file, sheet_name=SHEET_INTEGRANTES).dropna(subset=["Nombre*"])
 
 
 def leer_referencias(excel_file=EXCEL_FILE):
+    asegurar_workbook(excel_file)
     try:
         df = pd.read_excel(excel_file, sheet_name=SHEET_REFERENCIAS)
     except Exception:

@@ -1,4 +1,3 @@
-import os
 import time
 from urllib.parse import urljoin
 
@@ -6,6 +5,7 @@ import pandas as pd
 from openpyxl.styles import PatternFill
 from playwright.sync_api import sync_playwright
 
+from core.config import capellania_credentials
 from core.excel_store import (
     EXCEL_FILE,
     STATUS_COL,
@@ -19,19 +19,18 @@ from core.excel_store import (
 WP_LOGIN_URL = "https://capellania-app.visualweb.systems/wp-login.php"
 TARGET_URL = "https://capellania-app.visualweb.systems/wp-admin/admin.php?page=capapp2_estudios_biblicos"
 
-USER_WP = os.getenv("CAPELLANIA_USER", "")
-PASS_WP = os.getenv("CAPELLANIA_PASS", "")
-
 green_fill = PatternFill(start_color="E2EFDA", end_color="E2EFDA", fill_type="solid")
 red_fill = PatternFill(start_color="FCE4D6", end_color="FCE4D6", fill_type="solid")
 
 
 def validar_credenciales():
-    if not USER_WP or not PASS_WP:
+    credentials = capellania_credentials()
+    if not credentials["user"] or not credentials["password"]:
         raise RuntimeError(
             "Faltan CAPELLANIA_USER y/o CAPELLANIA_PASS. "
             "Definilas como variables de entorno antes de ejecutar la carga."
         )
+    return credentials
 
 
 def seleccionar_opcion_flexible(page, selector, texto_buscar, intentos=5):
@@ -145,7 +144,7 @@ def _procesar_grupo(page, row_grupo, df_integrantes):
 
 
 def procesar_carga_real(excel_file=EXCEL_FILE, headless=False):
-    validar_credenciales()
+    credentials = validar_credenciales()
     inicializar_estado_carga(excel_file)
     df_grupos = leer_grupos(excel_file)
     df_integrantes = leer_integrantes(excel_file)
@@ -162,8 +161,8 @@ def procesar_carga_real(excel_file=EXCEL_FILE, headless=False):
         page = browser.new_page()
 
         page.goto(WP_LOGIN_URL)
-        page.fill("#user_login", USER_WP)
-        page.fill("#user_pass", PASS_WP)
+        page.fill("#user_login", credentials["user"])
+        page.fill("#user_pass", credentials["password"])
         page.click("#wp-submit")
         page.wait_for_selector("#adminmenu, #wpadminbar", timeout=15000)
         page.wait_for_timeout(1000)
