@@ -18,6 +18,7 @@ from core.excel_store import (
 
 WP_LOGIN_URL = "https://capellania-app.visualweb.systems/wp-login.php"
 TARGET_URL = "https://capellania-app.visualweb.systems/wp-admin/admin.php?page=capapp2_estudios_biblicos"
+CHROMIUM_ARGS = ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"]
 
 green_fill = PatternFill(start_color="E2EFDA", end_color="E2EFDA", fill_type="solid")
 red_fill = PatternFill(start_color="FCE4D6", end_color="FCE4D6", fill_type="solid")
@@ -70,12 +71,12 @@ def seleccionar_opcion_flexible(page, selector, texto_buscar, intentos=5):
         )
 
         if val_seleccionado == "ESPERAR_AJAX":
-            time.sleep(0.5)
+            time.sleep(1.5)
             continue
         if val_seleccionado:
             print(f"    -> Seleccionado con exito: '{val_seleccionado}'")
             return
-        time.sleep(0.5)
+        time.sleep(1.5)
 
     print(f"    Alerta: No se encontro coincidencia para '{texto_buscar}' en [{selector}]")
 
@@ -92,7 +93,7 @@ def _procesar_grupo(page, row_grupo, df_integrantes):
 
     page.locator("#grupo_estudio_cab_grupo").fill(nombre_grupo)
     seleccionar_opcion_flexible(page, "#grupo_estudio_cab_id_empresa", row_grupo["Empresa*"])
-    time.sleep(0.3)
+    time.sleep(1.5)
     seleccionar_opcion_flexible(page, "div.col.mb-3:has-text('Sucursal') select, #grupo_estudio_cab_id_sucursal", row_grupo["Sucursal*"])
     seleccionar_opcion_flexible(page, "div.col.mb-3:has-text('Capellan') select, #grupo_estudio_cab_id_usuario", row_grupo["Capellán*"])
     seleccionar_opcion_flexible(page, "div.col.mb-3:has-text('Material') select", row_grupo["Material*"])
@@ -101,7 +102,7 @@ def _procesar_grupo(page, row_grupo, df_integrantes):
     page.click("#btn_guardar_grupo_estudio_cab")
     page.wait_for_selector("#grupo_estudio_cab_grupo", state="hidden", timeout=5000)
     page.wait_for_load_state("networkidle")
-    time.sleep(2)
+    time.sleep(2.5)
 
     integrantes_grupo = df_integrantes[
         df_integrantes["Nombre del Grupo (Exacto)*"].astype(str).str.strip() == nombre_grupo
@@ -113,7 +114,7 @@ def _procesar_grupo(page, row_grupo, df_integrantes):
         page.goto(urljoin(page.url, href_relativo))
         page.wait_for_load_state("load")
         page.wait_for_load_state("networkidle")
-        time.sleep(1.5)
+        time.sleep(2)
 
         for _, row_integ in integrantes_grupo.iterrows():
             nombre_persona = str(row_integ["Nombre*"]).strip()
@@ -133,17 +134,17 @@ def _procesar_grupo(page, row_grupo, df_integrantes):
 
             page.locator(".modal-footer button:has-text('Guardar'), .modal-content .btn-primary").filter(visible=True).first.click(force=True)
             page.wait_for_selector(".modal-body", state="hidden", timeout=5000)
-            time.sleep(0.5)
+            time.sleep(1.5)
 
     page.locator("text=Reuniones").filter(visible=True).first.click()
     page.wait_for_load_state("networkidle")
-    time.sleep(1.5)
+    time.sleep(2)
     page.locator("#btn_show_generar_reuniones_grupo_estudio_cab").click()
     page.wait_for_load_state("networkidle")
     time.sleep(4)
 
 
-def procesar_carga_real(excel_file=EXCEL_FILE, headless=False):
+def procesar_carga_real(excel_file=EXCEL_FILE):
     credentials = validar_credenciales()
     inicializar_estado_carga(excel_file)
     df_grupos = leer_grupos(excel_file)
@@ -157,7 +158,7 @@ def procesar_carga_real(excel_file=EXCEL_FILE, headless=False):
     procesados = 0
     errores = 0
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=headless)
+        browser = p.chromium.launch(headless=True, args=CHROMIUM_ARGS)
         page = browser.new_page()
 
         page.goto(WP_LOGIN_URL)
@@ -165,7 +166,7 @@ def procesar_carga_real(excel_file=EXCEL_FILE, headless=False):
         page.fill("#user_pass", credentials["password"])
         page.click("#wp-submit")
         page.wait_for_selector("#adminmenu, #wpadminbar", timeout=15000)
-        page.wait_for_timeout(1000)
+        page.wait_for_timeout(2000)
 
         for index, row_grupo in pendientes.iterrows():
             excel_row = int(index) + 2
