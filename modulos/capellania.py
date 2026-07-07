@@ -47,10 +47,13 @@ def _normalize_queue_dataframe(df):
     return normalized
 
 
-def _read_uploaded_queue_excel(uploaded_excel):
-    excel_file = pd.ExcelFile(uploaded_excel)
-    sheet_name = excel_store.SHEET_GRUPOS if excel_store.SHEET_GRUPOS in excel_file.sheet_names else 0
-    return pd.read_excel(excel_file, sheet_name=sheet_name)
+def _load_initial_queue_dataframe():
+    if EXCEL_FILE.exists():
+        try:
+            return _normalize_queue_dataframe(excel_store.leer_grupos())
+        except Exception:
+            return _empty_queue_dataframe()
+    return _empty_queue_dataframe()
 
 
 def _queue_status_counts(df):
@@ -90,7 +93,7 @@ def render_capellania():
     st.title("Capellanía")
 
     if "df_grupos" not in st.session_state:
-        st.session_state.df_grupos = _empty_queue_dataframe()
+        st.session_state.df_grupos = _load_initial_queue_dataframe()
     if st.session_state.get("cola_upload_message"):
         st.success(st.session_state.pop("cola_upload_message"))
 
@@ -148,10 +151,10 @@ def render_capellania():
         uploaded_key = f"{uploaded_excel.name}:{uploaded_excel.size}"
         if st.session_state.get("uploaded_cola_key") != uploaded_key:
             try:
-                uploaded_df = _read_uploaded_queue_excel(uploaded_excel)
-                st.session_state.df_grupos = _normalize_queue_dataframe(uploaded_df)
+                excel_store.guardar_archivo_subido(uploaded_excel)
+                st.session_state.df_grupos = _normalize_queue_dataframe(excel_store.leer_grupos())
                 st.session_state.uploaded_cola_key = uploaded_key
-                st.session_state.cola_upload_message = "Archivo cargado correctamente en la cola."
+                st.session_state.cola_upload_message = "Archivo cargado y guardado como plantilla_flujo_completo.xlsx."
                 st.rerun()
             except Exception as exc:
                 st.error(f"No se pudo leer el archivo Excel cargado: {exc}")

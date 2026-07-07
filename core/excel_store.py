@@ -63,6 +63,19 @@ def asegurar_workbook(excel_file=EXCEL_FILE):
     wb.close()
 
 
+def guardar_archivo_subido(uploaded_file, excel_file=EXCEL_FILE):
+    uploaded_name = getattr(uploaded_file, "name", "").lower()
+    if uploaded_name.endswith(".xls") and not uploaded_name.endswith(".xlsx"):
+        sheets = pd.read_excel(uploaded_file, sheet_name=None)
+        with pd.ExcelWriter(excel_file, engine="openpyxl") as writer:
+            for sheet_name, df in sheets.items():
+                df.to_excel(writer, sheet_name=sheet_name, index=False)
+        return
+
+    with open(excel_file, "wb") as f:
+        f.write(uploaded_file.getbuffer())
+
+
 def inicializar_estado_carga(excel_file=EXCEL_FILE):
     asegurar_workbook(excel_file)
     wb = load_workbook(excel_file)

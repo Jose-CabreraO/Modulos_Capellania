@@ -1,12 +1,19 @@
 import re
 import unicodedata
 
+from core.excel_store import leer_referencias
+
 
 def normalizar(texto):
     texto = "" if texto is None else str(texto)
     texto = unicodedata.normalize("NFD", texto.lower())
     texto = "".join(c for c in texto if unicodedata.category(c) != "Mn")
+    texto = re.sub(r"[^a-z0-9ñ\s]", " ", texto)
     return re.sub(r"\s+", " ", texto).strip()
+
+
+def _tokens(texto):
+    return set(normalizar(texto).split())
 
 
 def _buscar_catalogo(valor, opciones, preferidos=None):
@@ -19,10 +26,12 @@ def _buscar_catalogo(valor, opciones, preferidos=None):
         "ctm": "Cambia Tu Mundo",
         "cambia tu mundo": "Cambia Tu Mundo",
         "rio verde": "Rio Verde",
-        "impal": "HILAGRO S.A.E.",
+        "impal": "Importadora Alemana",
+        "importadora alemana": "Importadora Alemana",
     }
     objetivo = alias.get(valor_norm, valor)
     objetivo_norm = normalizar(objetivo)
+    objetivo_tokens = _tokens(objetivo)
 
     for preferido in preferidos:
         for opcion in opciones:
@@ -32,6 +41,16 @@ def _buscar_catalogo(valor, opciones, preferidos=None):
     for opcion in opciones:
         opcion_norm = normalizar(opcion)
         if opcion_norm == objetivo_norm or objetivo_norm in opcion_norm or opcion_norm in objetivo_norm:
+            return opcion
+
+    for opcion in opciones:
+        opcion_tokens = _tokens(opcion)
+        if objetivo_tokens and objetivo_tokens.issubset(opcion_tokens):
+            return opcion
+
+    for opcion in opciones:
+        opcion_tokens = _tokens(opcion)
+        if opcion_tokens and opcion_tokens.issubset(objetivo_tokens):
             return opcion
 
     return objetivo
@@ -57,7 +76,7 @@ def _parsear_integrante(linea):
 
 
 def parsear_whatsapp(texto_bruto, catalogos=None):
-    catalogos = catalogos or {}
+    catalogos = catalogos or leer_referencias()
     lineas = [line.strip() for line in texto_bruto.splitlines() if line.strip()]
     cabecera = {}
     integrantes = []
@@ -94,7 +113,7 @@ def parsear_whatsapp(texto_bruto, catalogos=None):
     empresa = _buscar_catalogo(
         cabecera.get("Empresa*", ""),
         catalogos.get("Empresas", []),
-        preferidos=["HILAGRO S.A.E.", "Importadora Alemana"] if normalizar(cabecera.get("Empresa*", "")) == "impal" else None,
+        preferidos=["Importadora Alemana", "HILAGRO S.A.E."] if normalizar(cabecera.get("Empresa*", "")) == "impal" else None,
     )
     sucursal = _buscar_catalogo(cabecera.get("Sucursal*", ""), catalogos.get("Sucursales", []))
     material = _buscar_catalogo(cabecera.get("Material*", ""), catalogos.get("Materiales", []))
