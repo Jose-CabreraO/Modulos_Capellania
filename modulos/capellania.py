@@ -106,7 +106,7 @@ def render_capellania():
     with col4:
         st.write("")
         st.write("")
-        if st.button("Ejecutar Carga Masiva", type="primary", use_container_width=True):
+        if st.button("Ejecutar Carga Masiva", type="primary", width="stretch"):
             with st.spinner("Ejecutando Playwright sobre filas PENDIENTE..."):
                 resultado = _ejecutar_bot()
             if resultado.returncode == 0:
@@ -131,8 +131,8 @@ def render_capellania():
     preview = _preview_dataframe(registros) if registros else pd.DataFrame()
 
     if not preview.empty:
-        st.data_editor(preview, use_container_width=True, hide_index=True, disabled=True)
-        if st.button("Confirmar e Inyectar a Excel", use_container_width=False):
+        st.data_editor(preview, width="stretch", hide_index=True, disabled=True)
+        if st.button("Confirmar e Inyectar a Excel", width="content"):
             grupos, integrantes = inyectar_whatsapp(registros)
             st.success(f"Inyectado: {grupos} grupo(s), {integrantes} integrante(s).")
             st.session_state.df_grupos = excel_store.leer_grupos()
@@ -164,7 +164,7 @@ def render_capellania():
         st.session_state.df_grupos,
         num_rows="dynamic",
         key="editor_grupos",
-        use_container_width=True,
+        width="stretch",
         hide_index=True,
     )
     st.session_state.df_grupos = edited_df.copy()
