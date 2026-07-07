@@ -1,9 +1,21 @@
 import os
+import subprocess
 import sys
 
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 import streamlit as st
+
+
+@st.cache_resource
+def garantizar_navegadores_playwright():
+    try:
+        subprocess.run(["playwright", "install", "chromium"], check=True)
+    except Exception as e:
+        st.error(f"Error instalando navegadores de Playwright: {e}")
+
+
+garantizar_navegadores_playwright()
 
 from modulos.capellania import render_capellania
 
