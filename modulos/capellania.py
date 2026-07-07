@@ -1,11 +1,8 @@
-import subprocess
-import sys
-
 import pandas as pd
 import streamlit as st
 
+from core import bot_carga
 from core import excel_store
-from core.config import capellania_credentials
 from core.excel_store import (
     EXCEL_FILE,
     GROUP_COLUMNS,
@@ -68,27 +65,6 @@ def _queue_status_counts(df):
     }
 
 
-def _ejecutar_bot():
-    env = None
-    credentials = capellania_credentials()
-    if credentials["user"] and credentials["password"]:
-        import os
-
-        env = os.environ.copy()
-        env["CAPELLANIA_USER"] = credentials["user"]
-        env["CAPELLANIA_PASS"] = credentials["password"]
-
-    proceso = subprocess.run(
-        [sys.executable, "-m", "core.bot_carga"],
-        cwd=EXCEL_FILE.parent,
-        capture_output=True,
-        text=True,
-        check=False,
-        env=env,
-    )
-    return proceso
-
-
 def render_capellania():
     st.title("Capellanía")
 
@@ -107,16 +83,14 @@ def render_capellania():
         st.write("")
         st.write("")
         if st.button("Ejecutar Carga Masiva", type="primary", width="stretch"):
-            with st.spinner("Ejecutando Playwright sobre filas PENDIENTE..."):
-                resultado = _ejecutar_bot()
-            if resultado.returncode == 0:
-                st.success("Carga finalizada.")
-            else:
-                st.error("La carga terminó con errores.")
-            with st.expander("Log de ejecución", expanded=resultado.returncode != 0):
-                st.code((resultado.stdout or "") + "\n" + (resultado.stderr or ""), language="text")
-            st.session_state.df_grupos = excel_store.leer_grupos()
-            st.rerun()
+            with st.spinner("Ejecutando carga masiva en WordPress..."):
+                try:
+                    bot_carga.procesar_carga_real()
+                    st.session_state.df_grupos = excel_store.leer_grupos()
+                    st.success("¡Carga finalizada con éxito!")
+                except Exception as e:
+                    st.error("❌ El bot de Playwright se detuvo por un error:")
+                    st.exception(e)
 
     st.divider()
 
