@@ -162,15 +162,21 @@ def build_schedule_grid(df):
     return grid.reset_index()
 
 
+def get_capellan_title(df):
+    if "Capellan" not in df.columns:
+        return "Horario"
+    capellanes = df["Capellan"].dropna().astype(str).str.strip()
+    capellanes = capellanes[capellanes != ""]
+    if capellanes.empty:
+        return "Horario"
+    return f"Horario - {capellanes.iloc[0]}"
+
+
 def highlight_occupied_cells(value):
-    if value == "---":
-        return "background-color: #DCFCE7; color: #166534;"
-    if "\n" in str(value):
-        return "background-color: #FECACA; color: #7F1D1D; font-weight: 700;"
-    return "background-color: #FED7AA; color: #7C2D12; font-weight: 600;"
+    return "background-color: #FFFFFF; color: #111827; font-weight: 500;"
 
 
-def _wrapped_cell(text, width=16):
+def _wrapped_cell(text, width=18):
     if text == "---":
         return text
     return "\n".join(textwrap.wrap(str(text), width=width, break_long_words=False))
@@ -179,11 +185,11 @@ def _wrapped_cell(text, width=16):
 def generate_schedule_pdf(grid, title="Organizador de horarios"):
     fig, ax = plt.subplots(figsize=(11.69, 8.27))
     ax.axis("off")
-    ax.set_title(title, fontsize=16, fontweight="bold", pad=14, color="#1F2937")
+    ax.set_title(title, fontsize=18, fontweight="bold", pad=12, color="#1F2937")
 
     columns = list(grid.columns)
     cell_text = [
-        [_wrapped_cell(row[column], width=14 if column != "Hora" else 8) for column in columns]
+        [_wrapped_cell(row[column], width=18 if column != "Hora" else 8) for column in columns]
         for _, row in grid.iterrows()
     ]
     cell_colours = []
@@ -192,12 +198,8 @@ def generate_schedule_pdf(grid, title="Organizador de horarios"):
         for column in columns:
             if column == "Hora":
                 row_colours.append("#E0F2FE")
-            elif row[column] == "---":
-                row_colours.append("#DCFCE7")
-            elif "\n" in str(row[column]):
-                row_colours.append("#FECACA")
             else:
-                row_colours.append("#FED7AA")
+                row_colours.append("#FFFFFF")
         cell_colours.append(row_colours)
 
     tabla = ax.table(
@@ -208,30 +210,25 @@ def generate_schedule_pdf(grid, title="Organizador de horarios"):
         colWidths=[0.09] + [0.151] * len(DAY_ORDER),
         cellLoc="center",
         loc="center",
-        bbox=[0.0, 0.02, 1.0, 0.92],
+        bbox=[0.0, 0.01, 1.0, 0.93],
     )
     tabla.auto_set_font_size(False)
-    tabla.set_fontsize(7)
-    tabla.scale(1.0, 2.8)
+    tabla.set_fontsize(12)
+    tabla.scale(1.2, 3.2)
 
     for (row, col), cell in tabla.get_celld().items():
         cell.set_edgecolor("#CBD5E1")
-        cell.set_linewidth(0.6)
+        cell.set_linewidth(0.8)
         if row == 0:
-            cell.set_text_props(weight="bold", color="#1E3A8A", fontsize=8)
+            cell.set_text_props(weight="bold", color="#1E3A8A", fontsize=12)
         elif col == 0:
-            cell.set_text_props(weight="bold", color="#075985", fontsize=7)
+            cell.set_facecolor("#E0F2FE")
+            cell.set_text_props(weight="bold", color="#075985", fontsize=12)
         else:
-            value = grid.iloc[row - 1, col] if row > 0 and col < len(columns) else ""
-            if value == "---":
-                color = "#166534"
-            elif "\n" in str(value):
-                color = "#7F1D1D"
-            else:
-                color = "#7C2D12"
-            cell.set_text_props(color=color, fontsize=6.5)
+            cell.set_facecolor("#FFFFFF")
+            cell.set_text_props(color="#111827", fontsize=12)
 
-    fig.subplots_adjust(left=0.01, right=0.99, top=0.92, bottom=0.02)
+    fig.subplots_adjust(left=0.01, right=0.99, top=0.91, bottom=0.01)
     output = BytesIO()
     fig.savefig(output, format="pdf", orientation="landscape", bbox_inches="tight")
     plt.close(fig)
@@ -258,15 +255,23 @@ def build_ui():
     try:
         parsed = parse_schedule_text(raw_text)
         grid = build_schedule_grid(parsed)
+        title = get_capellan_title(parsed)
     except Exception as exc:
         st.error(f"No se pudo procesar el texto pegado: {exc}")
         return
 
     st.caption(f"Registros procesados: {len(parsed)}")
-    styled = grid.style.map(highlight_occupied_cells, subset=DAY_ORDER)
+    styled = (
+        grid.style
+        .map(highlight_occupied_cells, subset=DAY_ORDER)
+        .set_properties(subset=["Hora"], **{"background-color": "#E0F2FE", "font-weight": "700", "color": "#075985"})
+        .set_table_styles([
+            {"selector": "th", "props": [("background-color", "#BFDBFE"), ("color", "#1E3A8A"), ("font-weight", "700")]},
+        ])
+    )
     st.dataframe(styled, width="stretch", hide_index=True)
 
-    pdf = generate_schedule_pdf(grid)
+    pdf = generate_schedule_pdf(grid, title=title)
     st.download_button(
         "Descargar PDF para imprimir",
         data=pdf,
