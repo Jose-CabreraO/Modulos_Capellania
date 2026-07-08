@@ -144,20 +144,35 @@ def parse_schedule_text(text):
     if df.empty:
         raise ValueError("No se detectaron horas válidas con formato HH:MM.")
 
-    df["Hora"] = parsed_hours[parsed_hours.notna()].dt.strftime("%H:%M")
-    df["Celda"] = df["Empresa"].astype(str).str.strip() + " - " + df["Sucursal"].astype(str).str.strip()
+    df["HoraDt"] = parsed_hours[parsed_hours.notna()]
+    df["Hora"] = df["HoraDt"].dt.strftime("%H:%M")
     return df
 
 
+def _hour_block_label(hour):
+    return f"{int(hour):02d}:00"
+
+
+def _format_assignment(row):
+    empresa = str(row["Empresa"]).strip()
+    sucursal = str(row["Sucursal"]).strip()
+    line_one = textwrap.fill(f"{row['Hora']} - {empresa}", width=22, break_long_words=False)
+    line_two = textwrap.fill(f"({sucursal})", width=22, break_long_words=False)
+    return f"{line_one}\n{line_two}"
+
+
 def build_schedule_grid(df):
-    hours = sorted(df["Hora"].unique(), key=lambda value: pd.to_datetime(value, format="%H:%M"))
-    grid = pd.DataFrame("---", index=hours, columns=DAY_ORDER)
+    min_hour = int(df["HoraDt"].dt.hour.min())
+    max_hour = int(df["HoraDt"].dt.hour.max())
+    hours = [_hour_block_label(hour) for hour in range(min_hour, max_hour + 1)]
+    grid = pd.DataFrame("—", index=hours, columns=DAY_ORDER)
     grid.index.name = "Hora"
 
-    for _, row in df.iterrows():
-        current = grid.loc[row["Hora"], row["Dia"]]
-        value = row["Celda"]
-        grid.loc[row["Hora"], row["Dia"]] = value if current == "---" else f"{current}\n{value}"
+    ordered = df.sort_values(["Dia", "HoraDt"])
+    for (hour, day), group in ordered.groupby([ordered["HoraDt"].dt.hour, "Dia"], sort=False):
+        block = _hour_block_label(hour)
+        values = [_format_assignment(row) for _, row in group.sort_values("HoraDt").iterrows()]
+        grid.loc[block, day] = "\n\n".join(values)
 
     return grid.reset_index()
 
@@ -176,10 +191,11 @@ def highlight_occupied_cells(value):
     return "background-color: #FFFFFF; color: #111827; font-weight: 500;"
 
 
-def _wrapped_cell(text, width=18):
-    if text == "---":
+def _wrapped_cell(text, width=22):
+    if text == "—":
         return text
-    return "\n".join(textwrap.wrap(str(text), width=width, break_long_words=False))
+    parts = str(text).splitlines()
+    return "\n".join(textwrap.fill(part, width=width, break_long_words=False) for part in parts)
 
 
 def generate_schedule_pdf(grid, title="Organizador de horarios"):
@@ -189,7 +205,7 @@ def generate_schedule_pdf(grid, title="Organizador de horarios"):
 
     columns = list(grid.columns)
     cell_text = [
-        [_wrapped_cell(row[column], width=18 if column != "Hora" else 8) for column in columns]
+        [_wrapped_cell(row[column], width=22 if column != "Hora" else 8) for column in columns]
         for _, row in grid.iterrows()
     ]
     cell_colours = []
@@ -206,7 +222,7 @@ def generate_schedule_pdf(grid, title="Organizador de horarios"):
         cellText=cell_text,
         colLabels=columns,
         cellColours=cell_colours,
-        colColours=["#BFDBFE"] * len(columns),
+        colColours=["#BAE6FD"] * len(columns),
         colWidths=[0.09] + [0.151] * len(DAY_ORDER),
         cellLoc="center",
         loc="center",
@@ -214,7 +230,7 @@ def generate_schedule_pdf(grid, title="Organizador de horarios"):
     )
     tabla.auto_set_font_size(False)
     tabla.set_fontsize(12)
-    tabla.scale(1.2, 3.2)
+    tabla.scale(1.0, 3.2)
 
     for (row, col), cell in tabla.get_celld().items():
         cell.set_edgecolor("#CBD5E1")
@@ -222,11 +238,11 @@ def generate_schedule_pdf(grid, title="Organizador de horarios"):
         if row == 0:
             cell.set_text_props(weight="bold", color="#1E3A8A", fontsize=12)
         elif col == 0:
-            cell.set_facecolor("#E0F2FE")
+            cell.set_facecolor("#BAE6FD")
             cell.set_text_props(weight="bold", color="#075985", fontsize=12)
         else:
             cell.set_facecolor("#FFFFFF")
-            cell.set_text_props(color="#111827", fontsize=12)
+            cell.set_text_props(color="#111827", fontsize=11)
 
     fig.subplots_adjust(left=0.01, right=0.99, top=0.91, bottom=0.01)
     output = BytesIO()
@@ -260,13 +276,14 @@ def build_ui():
         st.error(f"No se pudo procesar el texto pegado: {exc}")
         return
 
+    st.subheader(title)
     st.caption(f"Registros procesados: {len(parsed)}")
     styled = (
         grid.style
         .map(highlight_occupied_cells, subset=DAY_ORDER)
-        .set_properties(subset=["Hora"], **{"background-color": "#E0F2FE", "font-weight": "700", "color": "#075985"})
+        .set_properties(subset=["Hora"], **{"background-color": "#BAE6FD", "font-weight": "700", "color": "#075985"})
         .set_table_styles([
-            {"selector": "th", "props": [("background-color", "#BFDBFE"), ("color", "#1E3A8A"), ("font-weight", "700")]},
+            {"selector": "th", "props": [("background-color", "#BAE6FD"), ("color", "#1E3A8A"), ("font-weight", "700")]},
         ])
     )
     st.dataframe(styled, width="stretch", hide_index=True)
