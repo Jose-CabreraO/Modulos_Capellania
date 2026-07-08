@@ -1,10 +1,16 @@
+import os
 import re
+import tempfile
 import textwrap
 import unicodedata
 from io import BytesIO
 
+os.environ.setdefault("MPLCONFIGDIR", tempfile.gettempdir())
+import matplotlib
+
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
 import pandas as pd
-from fpdf import FPDF
 
 
 DAY_ORDER = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado"]
@@ -158,64 +164,77 @@ def build_schedule_grid(df):
 
 def highlight_occupied_cells(value):
     if value == "---":
-        return "background-color: #FAFAFA; color: #9CA3AF;"
-    return "background-color: #E8F3EE; color: #173B2F; font-weight: 600;"
+        return "background-color: #DCFCE7; color: #166534;"
+    if "\n" in str(value):
+        return "background-color: #FECACA; color: #7F1D1D; font-weight: 700;"
+    return "background-color: #FED7AA; color: #7C2D12; font-weight: 600;"
 
 
-def _wrapped_cell(text, width=18):
+def _wrapped_cell(text, width=16):
     if text == "---":
         return text
     return "\n".join(textwrap.wrap(str(text), width=width, break_long_words=False))
 
 
 def generate_schedule_pdf(grid, title="Organizador de horarios"):
-    pdf = FPDF(orientation="P", unit="mm", format="A4")
-    pdf.set_auto_page_break(auto=False)
-    pdf.add_page()
-    pdf.set_title(title)
+    fig, ax = plt.subplots(figsize=(11.69, 8.27))
+    ax.axis("off")
+    ax.set_title(title, fontsize=16, fontweight="bold", pad=14, color="#1F2937")
 
-    margin = 8
-    page_width = 210
-    usable_width = page_width - margin * 2
-    hour_width = 18
-    day_width = (usable_width - hour_width) / len(DAY_ORDER)
-    row_height = max(12, min(22, (297 - 34) / max(1, len(grid))))
-
-    pdf.set_font("Helvetica", "B", 14)
-    pdf.set_text_color(31, 41, 55)
-    pdf.cell(0, 10, title, align="C", new_x="LMARGIN", new_y="NEXT")
-    pdf.ln(2)
-
-    pdf.set_font("Helvetica", "B", 7)
-    pdf.set_fill_color(219, 234, 254)
-    pdf.set_draw_color(203, 213, 225)
-    pdf.cell(hour_width, 9, "Hora", border=1, align="C", fill=True)
-    for day in DAY_ORDER:
-        pdf.cell(day_width, 9, day, border=1, align="C", fill=True)
-    pdf.ln()
-
-    pdf.set_font("Helvetica", "", 6)
+    columns = list(grid.columns)
+    cell_text = [
+        [_wrapped_cell(row[column], width=14 if column != "Hora" else 8) for column in columns]
+        for _, row in grid.iterrows()
+    ]
+    cell_colours = []
     for _, row in grid.iterrows():
-        y_start = pdf.get_y()
-        if y_start + row_height > 287:
-            pdf.add_page()
-            y_start = pdf.get_y()
+        row_colours = []
+        for column in columns:
+            if column == "Hora":
+                row_colours.append("#E0F2FE")
+            elif row[column] == "---":
+                row_colours.append("#DCFCE7")
+            elif "\n" in str(row[column]):
+                row_colours.append("#FECACA")
+            else:
+                row_colours.append("#FED7AA")
+        cell_colours.append(row_colours)
 
-        pdf.set_fill_color(241, 245, 249)
-        pdf.cell(hour_width, row_height, str(row["Hora"]), border=1, align="C", fill=True)
+    tabla = ax.table(
+        cellText=cell_text,
+        colLabels=columns,
+        cellColours=cell_colours,
+        colColours=["#BFDBFE"] * len(columns),
+        colWidths=[0.09] + [0.151] * len(DAY_ORDER),
+        cellLoc="center",
+        loc="center",
+        bbox=[0.0, 0.02, 1.0, 0.92],
+    )
+    tabla.auto_set_font_size(False)
+    tabla.set_fontsize(7)
+    tabla.scale(1.0, 2.8)
 
-        for day in DAY_ORDER:
-            text = _wrapped_cell(row[day])
-            x = pdf.get_x()
-            y = pdf.get_y()
-            fill = row[day] != "---"
-            pdf.set_fill_color(232, 243, 238) if fill else pdf.set_fill_color(250, 250, 250)
-            pdf.multi_cell(day_width, 3.6, text, border=1, align="C", fill=True, max_line_height=3.6)
-            pdf.set_xy(x + day_width, y)
-        pdf.set_y(y_start + row_height)
+    for (row, col), cell in tabla.get_celld().items():
+        cell.set_edgecolor("#CBD5E1")
+        cell.set_linewidth(0.6)
+        if row == 0:
+            cell.set_text_props(weight="bold", color="#1E3A8A", fontsize=8)
+        elif col == 0:
+            cell.set_text_props(weight="bold", color="#075985", fontsize=7)
+        else:
+            value = grid.iloc[row - 1, col] if row > 0 and col < len(columns) else ""
+            if value == "---":
+                color = "#166534"
+            elif "\n" in str(value):
+                color = "#7F1D1D"
+            else:
+                color = "#7C2D12"
+            cell.set_text_props(color=color, fontsize=6.5)
 
+    fig.subplots_adjust(left=0.01, right=0.99, top=0.92, bottom=0.02)
     output = BytesIO()
-    pdf.output(output)
+    fig.savefig(output, format="pdf", orientation="landscape", bbox_inches="tight")
+    plt.close(fig)
     output.seek(0)
     return output
 
