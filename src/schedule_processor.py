@@ -166,15 +166,24 @@ def build_schedule_grid(df):
     max_hour = int(df["HoraDt"].dt.hour.max())
     hours = [_hour_block_label(hour) for hour in range(min_hour, max_hour + 1)]
     grid = pd.DataFrame("—", index=hours, columns=DAY_ORDER)
+    merge_keys = pd.DataFrame("", index=hours, columns=DAY_ORDER)
     grid.index.name = "Hora"
 
     ordered = df.sort_values(["Dia", "HoraDt"])
     for (hour, day), group in ordered.groupby([ordered["HoraDt"].dt.hour, "Dia"], sort=False):
         block = _hour_block_label(hour)
-        values = [_format_assignment(row) for _, row in group.sort_values("HoraDt").iterrows()]
+        sorted_group = group.sort_values("HoraDt")
+        values = [_format_assignment(row) for _, row in sorted_group.iterrows()]
         grid.loc[block, day] = "\n\n".join(values)
+        unique_places = sorted_group[["Empresa", "Sucursal"]].drop_duplicates()
+        if len(unique_places) == 1:
+            empresa = str(unique_places.iloc[0]["Empresa"]).strip()
+            sucursal = str(unique_places.iloc[0]["Sucursal"]).strip()
+            merge_keys.loc[block, day] = f"{empresa}||{sucursal}"
 
-    return grid.reset_index()
+    result = grid.reset_index()
+    result.attrs["merge_keys"] = merge_keys.reset_index()
+    return result
 
 
 def get_capellan_title(df):
@@ -196,6 +205,61 @@ def _wrapped_cell(text, width=22):
         return text
     parts = str(text).splitlines()
     return "\n".join(textwrap.fill(part, width=width, break_long_words=False) for part in parts)
+
+
+def _merge_runs_for_column(keys, day):
+    values = list(keys[day])
+    runs = []
+    start = None
+    current = ""
+    for idx, value in enumerate(values):
+        value = "" if pd.isna(value) else str(value)
+        if value and value == current:
+            continue
+        if current and start is not None and idx - start > 1:
+            runs.append((start, idx - 1))
+        start = idx if value else None
+        current = value
+    if current and start is not None and len(values) - start > 1:
+        runs.append((start, len(values) - 1))
+    return runs
+
+
+def _apply_visual_merges(tabla, grid, columns):
+    merge_keys = grid.attrs.get("merge_keys")
+    if merge_keys is None:
+        return
+
+    for day in DAY_ORDER:
+        if day not in merge_keys.columns:
+            continue
+        col = columns.index(day)
+        for start_idx, end_idx in _merge_runs_for_column(merge_keys, day):
+            table_rows = [idx + 1 for idx in range(start_idx, end_idx + 1)]
+            merged_text = "\n\n".join(
+                str(grid.iloc[idx][day])
+                for idx in range(start_idx, end_idx + 1)
+                if str(grid.iloc[idx][day]) != "—"
+            )
+            middle_row = table_rows[len(table_rows) // 2]
+
+            for position, table_row in enumerate(table_rows):
+                cell = tabla[(table_row, col)]
+                cell.set_facecolor("#FFFFFF")
+                if len(table_rows) == 1:
+                    cell.visible_edges = "closed"
+                elif position == 0:
+                    cell.visible_edges = "TLR"
+                elif position == len(table_rows) - 1:
+                    cell.visible_edges = "BLR"
+                else:
+                    cell.visible_edges = "LR"
+
+                if table_row == middle_row:
+                    cell.get_text().set_text(_wrapped_cell(merged_text, width=22))
+                    cell.set_text_props(color="#111827", fontsize=11, weight="normal", ha="center", va="center")
+                else:
+                    cell.get_text().set_text("")
 
 
 def generate_schedule_pdf(grid, title="Organizador de horarios"):
@@ -230,19 +294,21 @@ def generate_schedule_pdf(grid, title="Organizador de horarios"):
     )
     tabla.auto_set_font_size(False)
     tabla.set_fontsize(12)
-    tabla.scale(1.0, 3.2)
+    tabla.scale(1.2, 3.4)
 
     for (row, col), cell in tabla.get_celld().items():
         cell.set_edgecolor("#CBD5E1")
         cell.set_linewidth(0.8)
         if row == 0:
-            cell.set_text_props(weight="bold", color="#1E3A8A", fontsize=12)
+            cell.set_text_props(weight="bold", color="#111827", fontsize=12)
         elif col == 0:
             cell.set_facecolor("#BAE6FD")
-            cell.set_text_props(weight="bold", color="#075985", fontsize=12)
+            cell.set_text_props(weight="bold", color="#111827", fontsize=12)
         else:
             cell.set_facecolor("#FFFFFF")
             cell.set_text_props(color="#111827", fontsize=11)
+
+    _apply_visual_merges(tabla, grid, columns)
 
     fig.subplots_adjust(left=0.01, right=0.99, top=0.91, bottom=0.01)
     output = BytesIO()
