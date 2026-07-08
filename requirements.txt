@@ -3,3 +3,4 @@ pandas
 openpyxl
 playwright
 xlrd
+fpdf2
