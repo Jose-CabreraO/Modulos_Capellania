@@ -82,7 +82,7 @@ def _parse_line_fallback(line):
     listado_id = tokens[0]
     dia = tokens[day_idx]
     hora = tokens[day_idx + 1]
-    rango = " ".join(tokens[day_idx + 2:day_idx + 4])
+    rango = " ".join(tokens[day_idx + 2 : day_idx + 4])
     fecha = tokens[day_idx + 4]
 
     middle = tokens[1:day_idx]
@@ -92,7 +92,7 @@ def _parse_line_fallback(line):
     seccion = middle[-1]
     sucursal = middle[-2]
     capellan_tokens = middle[:4] if len(middle) >= 6 else middle[: max(1, len(middle) - 3)]
-    empresa_tokens = middle[len(capellan_tokens):-2]
+    empresa_tokens = middle[len(capellan_tokens) : -2]
 
     return {
         "ListadoId": listado_id,
@@ -146,6 +146,8 @@ def parse_schedule_text(text):
 
     df["HoraDt"] = parsed_hours[parsed_hours.notna()]
     df["Hora"] = df["HoraDt"].dt.strftime("%H:%M")
+    df["Dia_Norm"] = df["Dia"]
+    df["Asignacion"] = df.apply(_format_assignment, axis=1)
     return df
 
 
@@ -156,34 +158,32 @@ def _hour_block_label(hour):
 def _format_assignment(row):
     empresa = str(row["Empresa"]).strip()
     sucursal = str(row["Sucursal"]).strip()
-    line_one = textwrap.fill(f"{row['Hora']} - {empresa}", width=22, break_long_words=False)
-    line_two = textwrap.fill(f"({sucursal})", width=22, break_long_words=False)
+    line_one = textwrap.fill(f"{row['Hora']} - {empresa}", width=18, break_long_words=False)
+    line_two = textwrap.fill(f"({sucursal})", width=18, break_long_words=False)
     return f"{line_one}\n{line_two}"
 
 
 def build_schedule_grid(df):
-    min_hour = int(df["HoraDt"].dt.hour.min())
-    max_hour = int(df["HoraDt"].dt.hour.max())
+    work = df.copy()
+    if "Dia_Norm" not in work.columns:
+        work["Dia_Norm"] = work["Dia"].map(normalize_day)
+    if "Asignacion" not in work.columns:
+        work["Asignacion"] = work.apply(_format_assignment, axis=1)
+
+    min_hour = int(work["HoraDt"].dt.hour.min())
+    max_hour = int(work["HoraDt"].dt.hour.max())
     hours = [_hour_block_label(hour) for hour in range(min_hour, max_hour + 1)]
-    grid = pd.DataFrame("—", index=hours, columns=DAY_ORDER)
-    merge_keys = pd.DataFrame("", index=hours, columns=DAY_ORDER)
-    grid.index.name = "Hora"
 
-    ordered = df.sort_values(["Dia", "HoraDt"])
-    for (hour, day), group in ordered.groupby([ordered["HoraDt"].dt.hour, "Dia"], sort=False):
-        block = _hour_block_label(hour)
-        sorted_group = group.sort_values("HoraDt")
-        values = [_format_assignment(row) for _, row in sorted_group.iterrows()]
-        grid.loc[block, day] = "\n\n".join(values)
-        unique_places = sorted_group[["Empresa", "Sucursal"]].drop_duplicates()
-        if len(unique_places) == 1:
-            empresa = str(unique_places.iloc[0]["Empresa"]).strip()
-            sucursal = str(unique_places.iloc[0]["Sucursal"]).strip()
-            merge_keys.loc[block, day] = f"{empresa}||{sucursal}"
+    work["Hora"] = work["HoraDt"].dt.hour.map(_hour_block_label)
+    grouped = (
+        work.sort_values(["HoraDt", "Empresa", "Sucursal"])
+        .groupby(["Hora", "Dia_Norm"], as_index=False)["Asignacion"]
+        .agg(lambda values: "\n\n".join(values))
+    )
 
-    result = grid.reset_index()
-    result.attrs["merge_keys"] = merge_keys.reset_index()
-    return result
+    cuadrilla = grouped.pivot(index="Hora", columns="Dia_Norm", values="Asignacion")
+    cuadrilla = cuadrilla.reindex(index=hours, columns=DAY_ORDER).fillna("—")
+    return cuadrilla.reset_index()
 
 
 def get_capellan_title(df):
@@ -200,66 +200,11 @@ def highlight_occupied_cells(value):
     return "background-color: #FFFFFF; color: #111827; font-weight: 500;"
 
 
-def _wrapped_cell(text, width=22):
+def _wrapped_cell(text, width=18):
     if text == "—":
         return text
     parts = str(text).splitlines()
     return "\n".join(textwrap.fill(part, width=width, break_long_words=False) for part in parts)
-
-
-def _merge_runs_for_column(keys, day):
-    values = list(keys[day])
-    runs = []
-    start = None
-    current = ""
-    for idx, value in enumerate(values):
-        value = "" if pd.isna(value) else str(value)
-        if value and value == current:
-            continue
-        if current and start is not None and idx - start > 1:
-            runs.append((start, idx - 1))
-        start = idx if value else None
-        current = value
-    if current and start is not None and len(values) - start > 1:
-        runs.append((start, len(values) - 1))
-    return runs
-
-
-def _apply_visual_merges(tabla, grid, columns):
-    merge_keys = grid.attrs.get("merge_keys")
-    if merge_keys is None:
-        return
-
-    for day in DAY_ORDER:
-        if day not in merge_keys.columns:
-            continue
-        col = columns.index(day)
-        for start_idx, end_idx in _merge_runs_for_column(merge_keys, day):
-            table_rows = [idx + 1 for idx in range(start_idx, end_idx + 1)]
-            merged_text = "\n\n".join(
-                str(grid.iloc[idx][day])
-                for idx in range(start_idx, end_idx + 1)
-                if str(grid.iloc[idx][day]) != "—"
-            )
-            middle_row = table_rows[len(table_rows) // 2]
-
-            for position, table_row in enumerate(table_rows):
-                cell = tabla[(table_row, col)]
-                cell.set_facecolor("#FFFFFF")
-                if len(table_rows) == 1:
-                    cell.visible_edges = "closed"
-                elif position == 0:
-                    cell.visible_edges = "TLR"
-                elif position == len(table_rows) - 1:
-                    cell.visible_edges = "BLR"
-                else:
-                    cell.visible_edges = "LR"
-
-                if table_row == middle_row:
-                    cell.get_text().set_text(_wrapped_cell(merged_text, width=22))
-                    cell.set_text_props(color="#111827", fontsize=11, weight="normal", ha="center", va="center")
-                else:
-                    cell.get_text().set_text("")
 
 
 def generate_schedule_pdf(grid, title="Organizador de horarios"):
@@ -269,18 +214,13 @@ def generate_schedule_pdf(grid, title="Organizador de horarios"):
 
     columns = list(grid.columns)
     cell_text = [
-        [_wrapped_cell(row[column], width=22 if column != "Hora" else 8) for column in columns]
+        [_wrapped_cell(row[column], width=18 if column != "Hora" else 8) for column in columns]
         for _, row in grid.iterrows()
     ]
-    cell_colours = []
-    for _, row in grid.iterrows():
-        row_colours = []
-        for column in columns:
-            if column == "Hora":
-                row_colours.append("#E0F2FE")
-            else:
-                row_colours.append("#FFFFFF")
-        cell_colours.append(row_colours)
+    cell_colours = [
+        ["#BAE6FD" if column == "Hora" else "#FFFFFF" for column in columns]
+        for _ in cell_text
+    ]
 
     tabla = ax.table(
         cellText=cell_text,
@@ -293,22 +233,37 @@ def generate_schedule_pdf(grid, title="Organizador de horarios"):
         bbox=[0.0, 0.01, 1.0, 0.93],
     )
     tabla.auto_set_font_size(False)
-    tabla.set_fontsize(12)
-    tabla.scale(1.2, 3.4)
+    tabla.set_fontsize(10)
 
     for (row, col), cell in tabla.get_celld().items():
         cell.set_edgecolor("#CBD5E1")
         cell.set_linewidth(0.8)
+        cell.get_text().set_ha("center")
+        cell.get_text().set_va("center")
         if row == 0:
-            cell.set_text_props(weight="bold", color="#111827", fontsize=12)
+            cell.set_facecolor("#BAE6FD")
+            cell.set_text_props(weight="bold", color="#111827", fontsize=10)
         elif col == 0:
             cell.set_facecolor("#BAE6FD")
-            cell.set_text_props(weight="bold", color="#111827", fontsize=12)
+            cell.set_text_props(weight="bold", color="#111827", fontsize=10)
         else:
             cell.set_facecolor("#FFFFFF")
-            cell.set_text_props(color="#111827", fontsize=11)
+            cell.set_text_props(color="#111827", fontsize=10)
 
-    _apply_visual_merges(tabla, grid, columns)
+    line_counts = [
+        max(str(value).count("\n") + 1 for value in row_values)
+        for row_values in cell_text
+    ]
+    total_units = 1.2 + sum(max(1, count) for count in line_counts)
+    alto_base = 0.93 / total_units
+
+    for col_idx in range(len(columns)):
+        tabla[(0, col_idx)].set_height(alto_base * 1.2)
+
+    for row_idx, cantidad_de_lineas in enumerate(line_counts, start=1):
+        row_height = alto_base * max(1, cantidad_de_lineas)
+        for col_idx in range(len(columns)):
+            tabla[(row_idx, col_idx)].set_height(row_height)
 
     fig.subplots_adjust(left=0.01, right=0.99, top=0.91, bottom=0.01)
     output = BytesIO()
