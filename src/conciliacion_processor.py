@@ -10,9 +10,9 @@ DNIT_FECHA_COL = "Fecha Emisión"
 def _leer_archivo_subido(uploaded_file, *, header):
     nombre = uploaded_file.name.lower()
     if nombre.endswith(".xlsx"):
-        return pd.read_excel(uploaded_file, header=header)
+        return pd.read_excel(uploaded_file, header=header, dtype=str)
     if nombre.endswith(".csv"):
-        return pd.read_csv(uploaded_file, header=header)
+        return pd.read_csv(uploaded_file, header=header, dtype=str)
     raise ValueError("Formato no soportado. Subí un archivo .xlsx o .csv.")
 
 
