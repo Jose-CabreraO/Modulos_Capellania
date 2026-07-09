@@ -104,6 +104,8 @@ def render_modulo_conciliacion():
         met3.metric("Eficiencia del Cruce", f"{eficiencia:.1f}%")
 
         csv_dnit = df_dnit_filtrado.to_csv(index=False, encoding="utf-8")
+        if df_century_filtrado.shape[1] > 5:
+            df_century_filtrado[5] = df_century_filtrado[5].astype(str).str.slice(0, 10)
         txt_century = df_century_filtrado.to_csv(
             sep="\t",
             index=False,
