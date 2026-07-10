@@ -4,3 +4,4 @@ openpyxl
 playwright
 xlrd
 matplotlib
+xlwt

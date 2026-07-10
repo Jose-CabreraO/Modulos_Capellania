@@ -1,4 +1,5 @@
 from io import BytesIO
+from pathlib import Path
 
 import pandas as pd
 import streamlit as st
@@ -8,11 +9,21 @@ CENTURY_FACTURA_INDEX = 7
 DNIT_COMPROBANTE_COL = "Número de Comprobante"
 DNIT_FECHA_COL = "Fecha Emisión"
 SUPPORTED_INPUT_FORMATS = ["csv", "xlsx", "xls"]
+XLS_MAX_ROWS = 65536
+XLS_MAX_COLUMNS = 256
 
 
 def _extension_archivo(uploaded_file):
     nombre = uploaded_file.name.lower()
     return nombre.rsplit(".", 1)[-1] if "." in nombre else ""
+
+
+def _nombre_base(uploaded_file):
+    return Path(uploaded_file.name).stem
+
+
+def _nombre_salida(uploaded_file, sufijo, extension):
+    return f"{_nombre_base(uploaded_file)}_{sufijo}.{extension}"
 
 
 def _leer_archivo_subido(uploaded_file, *, header):
@@ -92,8 +103,8 @@ def _procesar_conciliacion(df_century, df_dnit):
     return df_dnit_filtrado, df_century_filtrado
 
 
-def _exportar_csv(df):
-    return df.to_csv(index=False, encoding="utf-8")
+def _exportar_csv(df, *, header=True):
+    return df.to_csv(index=False, header=header, encoding="utf-8")
 
 
 def _exportar_txt_tabular(df):
@@ -102,6 +113,12 @@ def _exportar_txt_tabular(df):
 
 def _forzar_texto(df):
     return df.astype(str)
+
+
+def _valor_texto(value):
+    if pd.isna(value):
+        return ""
+    return str(value)
 
 
 def _exportar_xlsx(df, *, header=True):
@@ -116,48 +133,137 @@ def _exportar_xlsx(df, *, header=True):
     return output
 
 
-def _render_descargas_conciliacion(df_dnit_filtrado, df_century_filtrado):
-    csv_dnit = _exportar_csv(df_dnit_filtrado)
+def _exportar_xls(df, *, header=True):
+    if len(df) + (1 if header else 0) > XLS_MAX_ROWS or len(df.columns) > XLS_MAX_COLUMNS:
+        raise ValueError(
+            "El formato .xls solo permite 65.536 filas y 256 columnas. "
+            "Descargá el resultado en .xlsx."
+        )
+
+    try:
+        import xlwt
+    except ImportError as exc:
+        raise ValueError(
+            "La exportación a .xls requiere la dependencia xlwt. "
+            "Descargá el resultado en .xlsx o instalá xlwt."
+        ) from exc
+
+    output = BytesIO()
+    workbook = xlwt.Workbook()
+    worksheet = workbook.add_sheet("Datos")
+    text_style = xlwt.XFStyle()
+    text_style.num_format_str = "@"
+
+    row_offset = 0
+    if header:
+        for col_idx, column in enumerate(df.columns):
+            worksheet.write(0, col_idx, _valor_texto(column), text_style)
+        row_offset = 1
+
+    for row_idx, row in enumerate(_forzar_texto(df).itertuples(index=False), start=row_offset):
+        for col_idx, value in enumerate(row):
+            worksheet.write(row_idx, col_idx, _valor_texto(value), text_style)
+
+    workbook.save(output)
+    output.seek(0)
+    return output
+
+
+def _exportar_en_formato(df, extension, *, header=True):
+    if extension == "csv":
+        return _exportar_csv(df, header=header), "text/csv"
+    if extension == "xlsx":
+        return (
+            _exportar_xlsx(df, header=header),
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+    if extension == "xls":
+        return _exportar_xls(df, header=header), "application/vnd.ms-excel"
+    raise ValueError("Formato de salida no soportado.")
+
+
+def _render_download(label, data, file_name, mime):
+    st.download_button(
+        label=label,
+        data=data,
+        file_name=file_name,
+        mime=mime,
+        width="stretch",
+    )
+
+
+def _render_descarga_mismo_formato(uploaded_file, df, *, sufijo, header, label):
+    extension = _extension_archivo(uploaded_file)
+    data, mime = _exportar_en_formato(df, extension, header=header)
+    _render_download(
+        label=label,
+        data=data,
+        file_name=_nombre_salida(uploaded_file, sufijo, extension),
+        mime=mime,
+    )
+
+
+def _render_descargas_conciliacion(df_dnit_filtrado, df_century_filtrado, file_dnit, file_century):
+    st.subheader("Descargar resultados")
+
+    st.caption("Descarga principal: conserva el formato y el nombre base del archivo original.")
+    same1, same2 = st.columns(2)
+    try:
+        with same1:
+            _render_descarga_mismo_formato(
+                file_dnit,
+                df_dnit_filtrado,
+                sufijo="coincidentes",
+                header=True,
+                label="Descargar DNIT en el mismo formato",
+            )
+        with same2:
+            _render_descarga_mismo_formato(
+                file_century,
+                df_century_filtrado,
+                sufijo="sin_duplicados",
+                header=False,
+                label="Descargar Century en el mismo formato",
+            )
+    except Exception as exc:
+        st.warning(f"No se pudo preparar la descarga en el formato original: {exc}")
+
+    csv_dnit = _exportar_csv(df_dnit_filtrado, header=True)
     xlsx_dnit = _exportar_xlsx(df_dnit_filtrado, header=True)
     txt_century = _exportar_txt_tabular(df_century_filtrado)
     xlsx_century = _exportar_xlsx(df_century_filtrado, header=False)
 
-    st.subheader("Descargar resultados")
-
+    st.caption("Descargas alternativas compatibles.")
     down1, down2 = st.columns(2)
     with down1:
-        st.download_button(
-            label="Descargar DNIT filtrado CSV",
-            data=csv_dnit,
-            file_name="dnit_coincidentes.csv",
-            mime="text/csv",
-            width="stretch",
+        _render_download(
+            "Descargar DNIT filtrado CSV",
+            csv_dnit,
+            _nombre_salida(file_dnit, "coincidentes", "csv"),
+            "text/csv",
         )
     with down2:
-        st.download_button(
-            label="Descargar DNIT filtrado XLSX",
-            data=xlsx_dnit,
-            file_name="dnit_coincidentes.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            width="stretch",
+        _render_download(
+            "Descargar DNIT filtrado XLSX",
+            xlsx_dnit,
+            _nombre_salida(file_dnit, "coincidentes", "xlsx"),
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         )
 
     down3, down4 = st.columns(2)
     with down3:
-        st.download_button(
-            label="Descargar Century sin duplicados TXT",
-            data=txt_century,
-            file_name="century_sin_duplicados.txt",
-            mime="text/plain",
-            width="stretch",
+        _render_download(
+            "Descargar Century sin duplicados TXT",
+            txt_century,
+            _nombre_salida(file_century, "sin_duplicados", "txt"),
+            "text/plain",
         )
     with down4:
-        st.download_button(
-            label="Descargar Century sin duplicados XLSX",
-            data=xlsx_century,
-            file_name="century_sin_duplicados.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            width="stretch",
+        _render_download(
+            "Descargar Century sin duplicados XLSX",
+            xlsx_century,
+            _nombre_salida(file_century, "sin_duplicados", "xlsx"),
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         )
 
 
@@ -166,19 +272,9 @@ def _convertir_archivo(uploaded_file, *, tiene_encabezados, formato_salida):
     df = _leer_archivo_subido(uploaded_file, header=header)
     _validar_dataframe_no_vacio(df, "convertido")
 
-    if formato_salida == "CSV":
-        data = df.to_csv(index=False, header=tiene_encabezados, encoding="utf-8")
-        return data, "archivo_convertido.csv", "text/csv"
-
-    if formato_salida == "XLSX":
-        data = _exportar_xlsx(df, header=tiene_encabezados)
-        return (
-            data,
-            "archivo_convertido.xlsx",
-            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        )
-
-    raise ValueError("La exportación a .xls no está disponible en este entorno; use .xlsx.")
+    extension = formato_salida.lower()
+    data, mime = _exportar_en_formato(df, extension, header=tiene_encabezados)
+    return data, _nombre_salida(uploaded_file, "convertido", extension), mime
 
 
 def _render_convertidor_archivos():
@@ -186,7 +282,7 @@ def _render_convertidor_archivos():
     st.header("Convertidor de archivos")
     st.write(
         "Convertí archivos CSV, XLSX o XLS manteniendo los datos como texto. "
-        "La exportación a XLS heredado no está disponible; usá XLSX para Excel."
+        "Cuando sea posible, el archivo convertido conserva el nombre base original."
     )
 
     archivo = st.file_uploader(
@@ -209,9 +305,6 @@ def _render_convertidor_archivos():
             key="convertidor_formato_salida",
         )
 
-    if formato_salida == "XLS":
-        st.warning("La exportación a .xls no está disponible en este entorno; use .xlsx.")
-
     if not archivo:
         return
 
@@ -225,13 +318,7 @@ def _render_convertidor_archivos():
         st.error(f"No se pudo convertir el archivo. Detalle: {exc}")
         return
 
-    st.download_button(
-        label=f"Descargar {formato_salida}",
-        data=data,
-        file_name=file_name,
-        mime=mime,
-        width="stretch",
-    )
+    _render_download(f"Descargar {formato_salida}", data, file_name, mime)
 
 
 def render_modulo_conciliacion():
@@ -276,7 +363,7 @@ def render_modulo_conciliacion():
             met2.metric("Únicos de Century", total_unicos_century)
             met3.metric("Eficiencia del Cruce", f"{eficiencia:.1f}%")
 
-            _render_descargas_conciliacion(df_dnit_filtrado, df_century_filtrado)
+            _render_descargas_conciliacion(df_dnit_filtrado, df_century_filtrado, file_dnit, file_century)
 
         except Exception as exc:
             st.error(
