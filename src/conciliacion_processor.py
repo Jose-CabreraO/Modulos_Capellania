@@ -22,8 +22,12 @@ def _nombre_base(uploaded_file):
     return Path(uploaded_file.name).stem
 
 
-def _nombre_salida(uploaded_file, sufijo, extension):
-    return f"{_nombre_base(uploaded_file)}_{sufijo}.{extension}"
+def _nombre_original(uploaded_file):
+    return uploaded_file.name
+
+
+def _nombre_con_extension(uploaded_file, extension):
+    return f"{_nombre_base(uploaded_file)}.{extension}"
 
 
 def _resetear_archivo(uploaded_file):
@@ -206,13 +210,13 @@ def _render_download(label, data, file_name, mime):
     )
 
 
-def _render_descarga_mismo_formato(uploaded_file, df, *, sufijo, header, label):
+def _render_descarga_mismo_formato(uploaded_file, df, *, header, label):
     extension = _extension_archivo(uploaded_file)
     data, mime = _exportar_en_formato(df, extension, header=header)
     _render_download(
         label=label,
         data=data,
-        file_name=_nombre_salida(uploaded_file, sufijo, extension),
+        file_name=_nombre_original(uploaded_file),
         mime=mime,
     )
 
@@ -220,27 +224,32 @@ def _render_descarga_mismo_formato(uploaded_file, df, *, sufijo, header, label):
 def _render_descargas_conciliacion(df_dnit_filtrado, df_century_filtrado, file_dnit, file_century):
     st.subheader("Descargar resultados")
 
-    st.caption("Descarga principal: conserva el formato y el nombre base del archivo original.")
-    same1, same2 = st.columns(2)
-    try:
-        with same1:
-            _render_descarga_mismo_formato(
-                file_dnit,
-                df_dnit_filtrado,
-                sufijo="coincidentes",
-                header=True,
-                label="Descargar DNIT en el mismo formato",
-            )
-        with same2:
+    st.caption("Descarga principal: conserva exactamente el nombre y formato del archivo original.")
+    century_col, dnit_col = st.columns(2)
+
+    with century_col:
+        st.markdown("**Century**")
+        try:
             _render_descarga_mismo_formato(
                 file_century,
                 df_century_filtrado,
-                sufijo="sin_duplicados",
                 header=False,
-                label="Descargar Century en el mismo formato",
+                label="Descargar Century original",
             )
-    except Exception as exc:
-        st.warning(f"No se pudo preparar la descarga en el formato original: {exc}")
+        except Exception as exc:
+            st.warning(f"No se pudo preparar Century en formato original: {exc}")
+
+    with dnit_col:
+        st.markdown("**DNIT**")
+        try:
+            _render_descarga_mismo_formato(
+                file_dnit,
+                df_dnit_filtrado,
+                header=True,
+                label="Descargar DNIT original",
+            )
+        except Exception as exc:
+            st.warning(f"No se pudo preparar DNIT en formato original: {exc}")
 
     csv_dnit = _exportar_csv(df_dnit_filtrado, header=True)
     xlsx_dnit = _exportar_xlsx(df_dnit_filtrado, header=True)
@@ -248,35 +257,32 @@ def _render_descargas_conciliacion(df_dnit_filtrado, df_century_filtrado, file_d
     xlsx_century = _exportar_xlsx(df_century_filtrado, header=False)
 
     st.caption("Descargas alternativas compatibles.")
-    down1, down2 = st.columns(2)
-    with down1:
+    century_alt, dnit_alt = st.columns(2)
+    with century_alt:
         _render_download(
-            "Descargar DNIT filtrado CSV",
-            csv_dnit,
-            _nombre_salida(file_dnit, "coincidentes", "csv"),
-            "text/csv",
+            "Descargar Century TXT",
+            txt_century,
+            _nombre_con_extension(file_century, "txt"),
+            "text/plain",
         )
-    with down2:
         _render_download(
-            "Descargar DNIT filtrado XLSX",
-            xlsx_dnit,
-            _nombre_salida(file_dnit, "coincidentes", "xlsx"),
+            "Descargar Century XLSX",
+            xlsx_century,
+            _nombre_con_extension(file_century, "xlsx"),
             "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         )
 
-    down3, down4 = st.columns(2)
-    with down3:
+    with dnit_alt:
         _render_download(
-            "Descargar Century sin duplicados TXT",
-            txt_century,
-            _nombre_salida(file_century, "sin_duplicados", "txt"),
-            "text/plain",
+            "Descargar DNIT CSV",
+            csv_dnit,
+            _nombre_con_extension(file_dnit, "csv"),
+            "text/csv",
         )
-    with down4:
         _render_download(
-            "Descargar Century sin duplicados XLSX",
-            xlsx_century,
-            _nombre_salida(file_century, "sin_duplicados", "xlsx"),
+            "Descargar DNIT XLSX",
+            xlsx_dnit,
+            _nombre_con_extension(file_dnit, "xlsx"),
             "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         )
 
@@ -288,7 +294,7 @@ def _convertir_archivo(uploaded_file, *, tiene_encabezados, formato_salida):
 
     extension = formato_salida.lower()
     data, mime = _exportar_en_formato(df, extension, header=tiene_encabezados)
-    return data, _nombre_salida(uploaded_file, "convertido", extension), mime
+    return data, _nombre_con_extension(uploaded_file, extension), mime
 
 
 def _render_convertidor_archivos():
