@@ -26,14 +26,24 @@ def _nombre_salida(uploaded_file, sufijo, extension):
     return f"{_nombre_base(uploaded_file)}_{sufijo}.{extension}"
 
 
+def _resetear_archivo(uploaded_file):
+    try:
+        uploaded_file.seek(0)
+    except Exception:
+        pass
+
+
 def _leer_archivo_subido(uploaded_file, *, header):
     extension = _extension_archivo(uploaded_file)
+    _resetear_archivo(uploaded_file)
 
     try:
         if extension == "csv":
             return pd.read_csv(uploaded_file, header=header, dtype=str)
-        if extension in {"xlsx", "xls"}:
-            return pd.read_excel(uploaded_file, header=header, dtype=str)
+        if extension == "xlsx":
+            return pd.read_excel(uploaded_file, header=header, dtype=str, engine="openpyxl")
+        if extension == "xls":
+            return pd.read_excel(uploaded_file, header=header, dtype=str, engine="xlrd")
     except ImportError as exc:
         raise ValueError(
             "Falta una dependencia para leer este archivo. "
@@ -41,9 +51,13 @@ def _leer_archivo_subido(uploaded_file, *, header):
         ) from exc
     except pd.errors.EmptyDataError as exc:
         raise ValueError("El archivo está vacío o no contiene datos tabulares.") from exc
+    except ValueError:
+        raise
     except Exception as exc:
         raise ValueError(
-            "No se pudo leer el archivo. Verificá que no esté corrupto y que su formato sea válido."
+            "No se pudo leer el archivo. Verificá que no esté corrupto, "
+            f"que la extensión .{extension} coincida con el contenido y que el formato sea válido. "
+            f"Detalle técnico: {exc}"
         ) from exc
 
     raise ValueError("Formato no soportado. Subí un archivo .csv, .xlsx o .xls.")
