@@ -11,6 +11,8 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import pandas as pd
+from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+from openpyxl.utils import get_column_letter
 
 
 DAY_ORDER = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado"]
@@ -186,10 +188,29 @@ def build_schedule_grid(df):
     return cuadrilla.reset_index()
 
 
+def _clean_capellan_name(row):
+    capellan = str(row.get("Capellan", "")).strip()
+    empresa = str(row.get("Empresa", "")).strip()
+    if not capellan:
+        return ""
+
+    if empresa:
+        capellan_norm = normalize_text(capellan)
+        empresa_norm = normalize_text(empresa)
+        if capellan_norm.endswith(empresa_norm):
+            capellan = capellan[: -len(empresa)].strip()
+        elif capellan_norm.startswith(empresa_norm):
+            capellan = capellan[len(empresa) :].strip()
+
+    return re.sub(r"\s+", " ", capellan).strip()
+
+
 def get_capellan_title(df):
     if "Capellan" not in df.columns:
         return "Horario"
-    capellanes = df["Capellan"].dropna().astype(str).str.strip()
+
+    capellanes = [_clean_capellan_name(row) for _, row in df.iterrows()]
+    capellanes = pd.Series(capellanes, dtype="object")
     capellanes = capellanes[capellanes != ""]
     if capellanes.empty:
         return "Horario"
@@ -209,17 +230,19 @@ def _wrapped_cell(text, width=18):
 
 def generate_schedule_pdf(grid, title="Organizador de horarios"):
     fig, ax = plt.subplots(figsize=(11.69, 8.27))
+    fig.patch.set_facecolor("#FFFFFF")
     ax.axis("off")
-    ax.set_title(title, fontsize=18, fontweight="bold", pad=12, color="#1F2937")
+    fig.text(0.02, 0.955, title, fontsize=18, fontweight="bold", color="#1F2937", ha="left", va="top")
 
     columns = list(grid.columns)
+    data_width = 15 if len(grid) > 8 else 18
     cell_text = [
-        [_wrapped_cell(row[column], width=18 if column != "Hora" else 8) for column in columns]
+        [_wrapped_cell(row[column], width=data_width if column != "Hora" else 8) for column in columns]
         for _, row in grid.iterrows()
     ]
     cell_colours = [
-        ["#BAE6FD" if column == "Hora" else "#FFFFFF" for column in columns]
-        for _ in cell_text
+        ["#BAE6FD" if column == "Hora" else ("#F8FAFC" if row_idx % 2 else "#FFFFFF") for column in columns]
+        for row_idx, _ in enumerate(cell_text)
     ]
 
     tabla = ax.table(
@@ -227,48 +250,92 @@ def generate_schedule_pdf(grid, title="Organizador de horarios"):
         colLabels=columns,
         cellColours=cell_colours,
         colColours=["#BAE6FD"] * len(columns),
-        colWidths=[0.09] + [0.151] * len(DAY_ORDER),
+        colWidths=[0.095] + [0.150] * len(DAY_ORDER),
         cellLoc="center",
         loc="center",
-        bbox=[0.0, 0.01, 1.0, 0.93],
+        bbox=[0.02, 0.025, 0.96, 0.865],
     )
     tabla.auto_set_font_size(False)
-    tabla.set_fontsize(10)
+    body_fontsize = 8 if len(grid) > 9 else 9
+    header_fontsize = 10
 
     for (row, col), cell in tabla.get_celld().items():
-        cell.set_edgecolor("#CBD5E1")
-        cell.set_linewidth(0.8)
+        cell.set_edgecolor("#94A3B8")
+        cell.set_linewidth(0.55)
+        cell.PAD = 0.08
         cell.get_text().set_ha("center")
         cell.get_text().set_va("center")
         if row == 0:
             cell.set_facecolor("#BAE6FD")
-            cell.set_text_props(weight="bold", color="#111827", fontsize=10)
+            cell.set_text_props(weight="bold", color="#111827", fontsize=header_fontsize)
         elif col == 0:
             cell.set_facecolor("#BAE6FD")
-            cell.set_text_props(weight="bold", color="#111827", fontsize=10)
+            cell.set_text_props(weight="bold", color="#111827", fontsize=header_fontsize)
         else:
-            cell.set_facecolor("#FFFFFF")
-            cell.set_text_props(color="#111827", fontsize=10)
+            cell.set_text_props(color="#111827", fontsize=body_fontsize)
 
-    line_counts = [
-        max(str(value).count("\n") + 1 for value in row_values)
-        for row_values in cell_text
-    ]
-    total_units = 1.2 + sum(max(1, count) for count in line_counts)
-    alto_base = 0.93 / total_units
+    line_counts = [max(str(value).count("\n") + 1 for value in row_values) for row_values in cell_text]
+    total_units = 1.25 + sum(max(1.35, count * 0.86) for count in line_counts)
+    alto_base = 0.865 / total_units
 
     for col_idx in range(len(columns)):
-        tabla[(0, col_idx)].set_height(alto_base * 1.2)
+        tabla[(0, col_idx)].set_height(alto_base * 1.25)
 
     for row_idx, cantidad_de_lineas in enumerate(line_counts, start=1):
-        row_height = alto_base * max(1, cantidad_de_lineas)
+        row_height = alto_base * max(1.35, cantidad_de_lineas * 0.86)
         for col_idx in range(len(columns)):
             tabla[(row_idx, col_idx)].set_height(row_height)
 
-    fig.subplots_adjust(left=0.01, right=0.99, top=0.91, bottom=0.01)
+    fig.subplots_adjust(left=0.0, right=1.0, top=0.91, bottom=0.0)
     output = BytesIO()
-    fig.savefig(output, format="pdf", orientation="landscape", bbox_inches="tight")
+    fig.savefig(output, format="pdf", orientation="landscape")
     plt.close(fig)
+    output.seek(0)
+    return output
+
+
+def generate_schedule_excel(grid, title="Organizador de horarios"):
+    output = BytesIO()
+    with pd.ExcelWriter(output, engine="openpyxl") as writer:
+        grid.to_excel(writer, index=False, startrow=2, sheet_name="Horario")
+        worksheet = writer.sheets["Horario"]
+
+        max_col = len(grid.columns)
+        worksheet.merge_cells(start_row=1, start_column=1, end_row=1, end_column=max_col)
+        title_cell = worksheet.cell(row=1, column=1)
+        title_cell.value = title
+        title_cell.font = Font(bold=True, size=16, color="1F2937")
+        title_cell.alignment = Alignment(horizontal="center", vertical="center")
+
+        header_fill = PatternFill("solid", fgColor="BAE6FD")
+        hour_fill = PatternFill("solid", fgColor="E0F2FE")
+        thin_side = Side(style="thin", color="CBD5E1")
+        border = Border(left=thin_side, right=thin_side, top=thin_side, bottom=thin_side)
+
+        for row in worksheet.iter_rows(min_row=3, max_row=worksheet.max_row, min_col=1, max_col=max_col):
+            for cell in row:
+                cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+                cell.border = border
+                if cell.row == 3:
+                    cell.fill = header_fill
+                    cell.font = Font(bold=True, color="111827")
+                elif cell.column == 1:
+                    cell.fill = hour_fill
+                    cell.font = Font(bold=True, color="111827")
+
+        worksheet.column_dimensions["A"].width = 12
+        for col_idx in range(2, max_col + 1):
+            worksheet.column_dimensions[get_column_letter(col_idx)].width = 24
+        for row_idx in range(4, worksheet.max_row + 1):
+            max_lines = max(
+                str(worksheet.cell(row=row_idx, column=col_idx).value or "").count("\n") + 1
+                for col_idx in range(1, max_col + 1)
+            )
+            worksheet.row_dimensions[row_idx].height = max(28, min(95, max_lines * 15))
+
+        worksheet.freeze_panes = "B4"
+        worksheet.sheet_view.showGridLines = False
+
     output.seek(0)
     return output
 
@@ -310,9 +377,21 @@ def build_ui():
     st.dataframe(styled, width="stretch", hide_index=True)
 
     pdf = generate_schedule_pdf(grid, title=title)
-    st.download_button(
-        "Descargar PDF para imprimir",
-        data=pdf,
-        file_name="organizador_horarios.pdf",
-        mime="application/pdf",
-    )
+    excel = generate_schedule_excel(grid, title=title)
+    col_pdf, col_excel = st.columns(2)
+    with col_pdf:
+        st.download_button(
+            "Descargar PDF para imprimir",
+            data=pdf,
+            file_name="organizador_horarios.pdf",
+            mime="application/pdf",
+            width="stretch",
+        )
+    with col_excel:
+        st.download_button(
+            "Descargar Excel",
+            data=excel,
+            file_name="organizador_horarios.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            width="stretch",
+        )
